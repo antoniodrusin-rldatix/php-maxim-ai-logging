@@ -6,8 +6,10 @@ use Slim\Factory\AppFactory;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\SDK\Trace\TracerProviderBuilder;
-use OpenTelemetry\SDK\Trace\SpanProcessor\BatchSpanProcessor;
-use OpenTelemetry\API\Common\Time\Clock;
+use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
+use OpenTelemetry\SDK\Common\Future\FutureInterface;
+use OpenTelemetry\SDK\Common\Future\CancellationInterface;
+use OpenTelemetry\SDK\Trace\SpanExporterInterface;
 use OpenTelemetry\SDK\Resource\ResourceInfoFactory;
 use OpenTelemetry\SDK\Common\Attribute\Attributes;
 use OpenTelemetry\SemConv\ResourceAttributes;
@@ -29,8 +31,56 @@ $transport = (new OtlpHttpTransportFactory())->create(
     ]
 );
 
-// Create OTLP exporter
-$exporter = new SpanExporter($transport);
+// Create OTLP exporter with error logging wrapper
+class ErrorLoggingSpanExporter implements SpanExporterInterface
+{
+    public function __construct(private SpanExporterInterface $exporter)
+    {
+    }
+
+    public function export(iterable $batch, ?CancellationInterface $cancellation = null): FutureInterface
+    {
+        return $this->exporter->export($batch, $cancellation)
+            ->catch(function (\Throwable $e): bool {
+                error_log('OTEL Export Error: ' . $e->getMessage());
+                error_log('OTEL Export Error Trace: ' . $e->getTraceAsString());
+                echo "ERROR: OTEL export failed: " . $e->getMessage() . PHP_EOL;
+                return false;
+            })
+            ->map(function (bool $result): bool {
+                if (!$result) {
+                    error_log('OTEL Export returned false');
+                    echo "WARNING: OTEL export returned false" . PHP_EOL;
+                }
+                return $result;
+            });
+    }
+
+    public function shutdown(?CancellationInterface $cancellation = null): bool
+    {
+        try {
+            return $this->exporter->shutdown($cancellation);
+        } catch (\Throwable $e) {
+            error_log('OTEL Shutdown Error: ' . $e->getMessage());
+            echo "ERROR: OTEL shutdown failed: " . $e->getMessage() . PHP_EOL;
+            return false;
+        }
+    }
+
+    public function forceFlush(?CancellationInterface $cancellation = null): bool
+    {
+        try {
+            return $this->exporter->forceFlush($cancellation);
+        } catch (\Throwable $e) {
+            error_log('OTEL ForceFlush Error: ' . $e->getMessage());
+            echo "ERROR: OTEL forceFlush failed: " . $e->getMessage() . PHP_EOL;
+            return false;
+        }
+    }
+}
+
+$baseExporter = new SpanExporter($transport);
+$exporter = new ErrorLoggingSpanExporter($baseExporter);
 
 // Create resource with service information
 $resource = ResourceInfoFactory::emptyResource()
@@ -41,9 +91,9 @@ $resource = ResourceInfoFactory::emptyResource()
         ])
     ));
 
-// Build tracer provider
+// Build tracer provider with SimpleSpanProcessor for immediate export
 $tracerProvider = (new TracerProviderBuilder())
-    ->addSpanProcessor(new BatchSpanProcessor($exporter, Clock::getDefault()))
+    ->addSpanProcessor(new SimpleSpanProcessor($exporter))
     ->setResource($resource)
     ->build();
 
@@ -84,54 +134,27 @@ $app->get('/query', function ($request, $response, $args) use ($tracer) {
             $llmSpan->setAttribute('openinference.span.kind', 'LLM');
             
             // LLM Model Information
-//            $llmSpan->setAttribute('llm.model_name', 'anthropic.claude-3-5-sonnet-20241022-v2:0');
-//            $llmSpan->setAttribute('llm.provider', 'bedrock');
-//            $llmSpan->setAttribute('llm.vendor', 'aws');
-//
-//            // Input Messages (OpenInference indexed format)
-//            $llmSpan->setAttribute('llm.input_messages.0.message.role', 'user');
-//            $llmSpan->setAttribute('llm.input_messages.0.message.content', 'What is the capital of France?');
-//
-//            // Token Counts
-//            $llmSpan->setAttribute('llm.token_count.prompt', 3000);
-//            $llmSpan->setAttribute('llm.token_count.completion', 300);
-//            $llmSpan->setAttribute('llm.token_count.total', 3300);
-//
-//            // Invocation Parameters
-//            $llmSpan->setAttribute('llm.invocation_parameters.temperature', 0.7);
-//            $llmSpan->setAttribute('llm.invocation_parameters.max_tokens', 1000);
-//            $llmSpan->setAttribute('llm.invocation_parameters.top_p', 0.9);
-            
-            // Generative AI Semantic Conventions
-            $llmSpan->setAttribute('gen_ai.system', 'aws.bedrock');
-            $llmSpan->setAttribute('gen_ai.provider.name', 'aws.bedrock');
-            $llmSpan->setAttribute('gen_ai.operation.name', 'chat');
-            $llmSpan->setAttribute('gen_ai.request.type', 'chat');
-            $llmSpan->setAttribute('gen_ai.request.model', 'anthropic.claude-3-5-sonnet-20241022-v2:0');
-            $llmSpan->setAttribute('gen_ai.request.max_tokens', 1000);
-            $llmSpan->setAttribute('gen_ai.request.temperature', 0.7);
-            $llmSpan->setAttribute('gen_ai.request.top_p', 0.9);
-            $llmSpan->setAttribute('gen_ai.response.type', 'chat');
-            $llmSpan->setAttribute('gen_ai.response.model', 'anthropic.claude-3-5-sonnet-20241022-v2:0');
-            $llmSpan->setAttribute('gen_ai.response.id', 'bedrock-' . uniqid());
-            $llmSpan->setAttribute('gen_ai.response.finish_reasons', ['stop']);
-            $llmSpan->setAttribute('gen_ai.usage.input_tokens', 3000);
-            $llmSpan->setAttribute('gen_ai.usage.output_tokens', 300);
-            $llmSpan->setAttribute('gen_ai.usage.total_tokens', 3300);
-            
-//            // Output Messages
-//            $llmSpan->setAttribute('llm.output_messages.0.message.role', 'assistant');
-//            $llmSpan->setAttribute('llm.output_messages.0.message.content', 'The capital of France is Paris.');
-//
-//            // Cost Information
-//            $llmSpan->setAttribute('llm.usage.prompt_tokens', 3000);
-//            $llmSpan->setAttribute('llm.usage.completion_tokens', 300);
-//            $llmSpan->setAttribute('llm.usage.total_tokens', 3300);
-//            $llmSpan->setAttribute('llm.usage.cost', $totalCost);
-//            $llmSpan->setAttribute('llm.usage.cost_details.prompt', $inputCost);
-//            $llmSpan->setAttribute('llm.usage.cost_details.completion', $outputCost);
-//            $llmSpan->setAttribute('llm.response_id', 'bedrock-' . uniqid());
-            
+            $llmSpan->setAttribute('llm.model_name', 'anthropic.claude-3-5-sonnet-20241022-v2:0');
+            $llmSpan->setAttribute('llm.provider', 'bedrock');
+            $llmSpan->setAttribute('llm.vendor', 'aws');
+
+            // Input Messages (OpenInference indexed format)
+            $llmSpan->setAttribute('llm.input_messages.0.message.role', 'user');
+            $llmSpan->setAttribute('llm.input_messages.0.message.content', 'What is the capital of France?');
+
+            $llmSpan->setAttribute('llm.output_messages.0.message.role', 'assistant');
+            $llmSpan->setAttribute('llm.output_messages.0.message.content', 'Paris!');
+
+            // Token Counts
+            $llmSpan->setAttribute('llm.token_count.prompt', 3000);
+            $llmSpan->setAttribute('llm.token_count.completion', 300);
+            $llmSpan->setAttribute('llm.token_count.total', 3300);
+
+            // Invocation Parameters
+            $llmSpan->setAttribute('llm.invocation_parameters.temperature', 0.7);
+            $llmSpan->setAttribute('llm.invocation_parameters.max_tokens', 1000);
+            $llmSpan->setAttribute('llm.invocation_parameters.top_p', 0.9);
+
             $llmSpan->setStatus(StatusCode::STATUS_OK);
         } finally {
             $llmSpan->end();
