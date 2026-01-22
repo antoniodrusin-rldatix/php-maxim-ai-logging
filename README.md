@@ -136,7 +136,30 @@ composer install
 
 This will install Slim framework and its dependencies.
 
-### 4. Run the Development Server
+### 4. Configure Environment Variables
+
+The application requires Maxim API credentials to send traces to Maxim's OTLP endpoint. Set the following environment variables:
+
+**In WSL/Bash:**
+```bash
+export MAXIM_API_KEY="your_api_key_here"
+export MAXIM_REPO_ID="your_repository_id_here"
+```
+
+**To make them persistent, add to your `~/.bashrc` or `~/.bash_profile`:**
+```bash
+echo 'export MAXIM_API_KEY="your_api_key_here"' >> ~/.bashrc
+echo 'export MAXIM_REPO_ID="your_repository_id_here"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**Or create a `.env` file in the project root** (if you prefer, though the current implementation reads from environment variables directly).
+
+**Where to find these values:**
+- **MAXIM_API_KEY**: Your Maxim API key. Learn how to obtain API keys in the [Maxim Dashboard](https://www.getmaxim.ai/docs/tracing/opentelemetry/ingesting-via-otlp)
+- **MAXIM_REPO_ID**: Your Log Repository ID. You can find it in the Maxim Dashboard under **Logs > Repositories**
+
+### 5. Run the Development Server
 
 ```bash
 php -S localhost:8000 -t public
@@ -144,7 +167,7 @@ php -S localhost:8000 -t public
 
 The server will start and listen on `http://localhost:8000`
 
-### 5. Test the Endpoint
+### 6. Test the Endpoint
 
 Open a browser or use curl:
 
@@ -196,9 +219,37 @@ The endpoint should return HTTP 200 status code.
 
 - **URL**: `http://localhost:8000/query`
 - **Method**: GET
-- **Response**: HTTP 200 status code
+- **Response**: HTTP 200 status code with JSON response
+- **Functionality**: Simulates an LLM call to AWS Bedrock and sends OpenTelemetry traces to Maxim using OTLP format
+
+The endpoint logs a complete LLM trace with:
+- OpenInference semantic conventions
+- Generative AI semantic conventions
+- Token usage (3000 input, 300 output tokens)
+- Cost information
+- Request/response messages
 
 ## Troubleshooting
+
+### Environment Variables Not Set
+
+If you see errors related to Maxim API credentials:
+
+1. **Verify environment variables are set:**
+   ```bash
+   echo $MAXIM_API_KEY
+   echo $MAXIM_REPO_ID
+   ```
+
+2. **If not set, export them in your current terminal session:**
+   ```bash
+   export MAXIM_API_KEY="your_api_key_here"
+   export MAXIM_REPO_ID="your_repository_id_here"
+   ```
+
+3. **Restart the development server** after setting the variables
+
+4. **Check the PHP error logs** if traces fail to send - the application logs errors to PHP's error log
 
 ### vendor/autoload.php Not Found Error
 
