@@ -10,7 +10,6 @@ use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
 use OpenTelemetry\SDK\Common\Future\FutureInterface;
 use OpenTelemetry\SDK\Common\Future\CancellationInterface;
 use OpenTelemetry\SDK\Trace\SpanExporterInterface;
-use OpenTelemetry\SDK\Resource\ResourceInfoFactory;
 use OpenTelemetry\SDK\Common\Attribute\Attributes;
 use OpenTelemetry\SemConv\ResourceAttributes;
 use OpenTelemetry\Contrib\Otlp\SpanExporter;
@@ -44,13 +43,11 @@ class ErrorLoggingSpanExporter implements SpanExporterInterface
             ->catch(function (\Throwable $e): bool {
                 error_log('OTEL Export Error: ' . $e->getMessage());
                 error_log('OTEL Export Error Trace: ' . $e->getTraceAsString());
-                echo "ERROR: OTEL export failed: " . $e->getMessage() . PHP_EOL;
                 return false;
             })
             ->map(function (bool $result): bool {
                 if (!$result) {
                     error_log('OTEL Export returned false');
-                    echo "WARNING: OTEL export returned false" . PHP_EOL;
                 }
                 return $result;
             });
@@ -62,7 +59,6 @@ class ErrorLoggingSpanExporter implements SpanExporterInterface
             return $this->exporter->shutdown($cancellation);
         } catch (\Throwable $e) {
             error_log('OTEL Shutdown Error: ' . $e->getMessage());
-            echo "ERROR: OTEL shutdown failed: " . $e->getMessage() . PHP_EOL;
             return false;
         }
     }
@@ -73,7 +69,6 @@ class ErrorLoggingSpanExporter implements SpanExporterInterface
             return $this->exporter->forceFlush($cancellation);
         } catch (\Throwable $e) {
             error_log('OTEL ForceFlush Error: ' . $e->getMessage());
-            echo "ERROR: OTEL forceFlush failed: " . $e->getMessage() . PHP_EOL;
             return false;
         }
     }
@@ -83,13 +78,12 @@ $baseExporter = new SpanExporter($transport);
 $exporter = new ErrorLoggingSpanExporter($baseExporter);
 
 // Create resource with service information
-$resource = ResourceInfoFactory::emptyResource()
-    ->merge(\OpenTelemetry\SDK\Resource\ResourceInfo::create(
-        Attributes::create([
-            ResourceAttributes::SERVICE_NAME => 'php-maxim-ai-logging',
-            ResourceAttributes::SERVICE_VERSION => '1.0.0',
-        ])
-    ));
+$resource = \OpenTelemetry\SDK\Resource\ResourceInfo::create(
+    Attributes::create([
+        ResourceAttributes::SERVICE_NAME => 'php-maxim-ai-logging',
+        ResourceAttributes::SERVICE_VERSION => '1.0.0',
+    ])
+);
 
 // Build tracer provider with SimpleSpanProcessor for immediate export
 $tracerProvider = (new TracerProviderBuilder())
@@ -113,13 +107,7 @@ $app->get('/query', function ($request, $response, $args) use ($tracer) {
     
     try {
         // Simulate LLM processing time
-        usleep(250000); // 0.5 seconds
-        
-        // Calculate costs (Claude 3.5 Sonnet on Bedrock pricing)
-        // Input: $3.00 per 1M tokens, Output: $15.00 per 1M tokens
-        $inputCost = (3000 / 1000000) * 3.00;  // $0.009
-        $outputCost = (300 / 1000000) * 15.00;  // $0.0045
-        $totalCost = $inputCost + $outputCost;  // $0.0135
+        usleep(250000); // 0.25 seconds
         
         // Create LLM span with OpenInference semantic conventions
         // The parent context is automatically inherited from the activated root span
@@ -149,6 +137,8 @@ $app->get('/query', function ($request, $response, $args) use ($tracer) {
             $llmSpan->setAttribute('llm.token_count.prompt', 3000);
             $llmSpan->setAttribute('llm.token_count.completion', 300);
             $llmSpan->setAttribute('llm.token_count.total', 3300);
+
+            $llmSpan->setAttribute('llm.cost.total', 0.66);
 
             // Invocation Parameters
             $llmSpan->setAttribute('llm.invocation_parameters.temperature', 0.7);
