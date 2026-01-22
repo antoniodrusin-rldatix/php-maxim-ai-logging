@@ -44,50 +44,43 @@ A minimal PHP project with a GET endpoint that returns HTTP 200 status code.
 
 ### Installing Composer
 
-1. **Download Composer installer:**
-   ```bash
-   cd ~
-   curl -sS https://getcomposer.org/installer -o composer-setup.php
-   ```
+**Method 1: Direct Installation (Recommended)**
 
-2. **Verify the installer (optional but recommended):**
-   ```bash
-   php -r "if (hash_file('sha384', 'composer-setup.php') === 'dac665fdc30fdd8ec78b38b9800061b4150413ff2e3b6f88543c636f7cd84f6db9189d43a81e5503cda447da73c7e5b6') { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;"
-   ```
-
-3. **Run the installer:**
-   ```bash
-   php composer-setup.php
-   ```
-
-4. **Move Composer to global location:**
-   ```bash
-   sudo mv composer.phar /usr/local/bin/composer
-   ```
-
-5. **Make Composer executable (if needed):**
-   ```bash
-   sudo chmod +x /usr/local/bin/composer
-   ```
-
-6. **Clean up installer file:**
-   ```bash
-   rm composer-setup.php
-   ```
-
-7. **Verify Composer installation:**
-   ```bash
-   composer --version
-   ```
-   You should see Composer version information.
-
-### Alternative: Install Composer via Package Manager
-
-Alternatively, you can install Composer using apt (may have an older version):
+The simplest and most current method:
 
 ```bash
-sudo apt install composer
+cd ~
+php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+php composer-setup.php
+php -r "unlink('composer-setup.php');"
+sudo mv composer.phar /usr/local/bin/composer
+sudo chmod +x /usr/local/bin/composer
 ```
+
+**Method 2: With Hash Verification (More Secure)**
+
+If you want to verify the installer hash (optional):
+
+```bash
+cd ~
+php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+php -r "if (hash_file('sha384', 'composer-setup.php') === file_get_contents('https://composer.github.io/installer.sig')) { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;"
+php composer-setup.php
+php -r "unlink('composer-setup.php');"
+sudo mv composer.phar /usr/local/bin/composer
+sudo chmod +x /usr/local/bin/composer
+```
+
+**Verify Composer installation:**
+```bash
+composer --version
+```
+You should see Composer version information.
+
+**Note:** The hash verification in Method 2 fetches the current hash from Composer's website, so it's always up-to-date and won't fail due to outdated hashes.
+
+
+**However, the official installer method above is strongly recommended** to ensure you get the latest stable version with all security updates.
 
 ### Troubleshooting Installation
 
@@ -181,7 +174,12 @@ The endpoint should return HTTP 200 status code.
 
 1. Open PhpStorm terminal (View → Tool Windows → Terminal)
 2. Select WSL from the terminal dropdown (if configured)
-3. Run commands as shown above
+3. Navigate to project directory: `cd /mnt/d/dev/tests/php-maxim-ai-logging`
+4. Run the development server: `php -S localhost:8000 -t public`
+5. Keep the terminal running (the server runs in the foreground)
+6. Test the endpoint in another terminal or browser: `curl http://localhost:8000/query`
+
+**Important**: Do NOT run `php public/index.php` directly - Slim requires an HTTP server context. Always use the PHP development server.
 
 ## Project Structure
 
@@ -201,6 +199,51 @@ The endpoint should return HTTP 200 status code.
 - **Response**: HTTP 200 status code
 
 ## Troubleshooting
+
+### vendor/autoload.php Not Found Error
+
+If you see an error like:
+```
+PHP Fatal error: Failed opening required 'vendor/autoload.php'
+```
+
+This means Composer dependencies haven't been installed yet. Run:
+
+```bash
+composer install
+```
+
+This will:
+- Download all required packages (Slim framework, etc.)
+- Create the `vendor/` directory
+- Generate `vendor/autoload.php`
+
+**Important**: You must run `composer install` before running the PHP application.
+
+### "Not found" Error When Running PHP File Directly
+
+If you see an error like:
+```
+Slim\Exception\HttpNotFoundException: Not found.
+```
+
+This happens when you try to run the PHP file directly (e.g., `php public/index.php` or running it from PhpStorm's run configuration). **Slim requires an HTTP server context** to handle requests and match routes.
+
+**Solution**: Always run the application through the PHP development server:
+
+```bash
+php -S localhost:8000 -t public
+```
+
+Then access the endpoint via HTTP:
+```bash
+curl http://localhost:8000/query
+```
+
+**Running from PhpStorm:**
+- Don't create a run configuration that executes `index.php` directly
+- Instead, use PhpStorm's terminal (configured for WSL) and run the server command
+- Or create a run configuration that runs: `php -S localhost:8000 -t public` (but this will run indefinitely)
 
 ### Port Already in Use
 
